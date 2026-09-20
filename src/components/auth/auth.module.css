@@ -1,0 +1,23 @@
+.page { min-height: 100dvh; display: grid; place-items: center; padding: clamp(1rem, 5vw, 4rem); background: var(--app-bg); }
+.card { width: min(100%, 30rem); background: var(--surface); border: 1px solid var(--line); border-top: 4px solid var(--accent); padding: clamp(1.5rem, 4vw, 2.75rem); }
+.brand { color: var(--accent); font-family: var(--workbench-mono); font-size: .8rem; letter-spacing: .12em; }
+.card h1 { font-size: 2rem; font-weight: 500; margin: 1rem 0 .75rem; letter-spacing: -.03em; }
+.intro { color: var(--text-secondary); line-height: 1.65; margin-bottom: 1.75rem; }
+.form { display: grid; gap: 1.25rem; }
+.field { display: grid; gap: .5rem; font-size: .9rem; font-weight: 500; }
+.field input { box-sizing: border-box; width: 100%; min-height: 48px; padding: .7rem .85rem; border: 1px solid var(--text-secondary); background: var(--surface); color: var(--text-primary); border-radius: 0; font: inherit; }
+.button, .secondary { min-height: 48px; padding: .75rem 1rem; cursor: pointer; font: inherit; transition: background-color 150ms; }
+.button { border: 1px solid #183f9f; background: #183f9f; color: #fff; }
+.secondary { background: transparent; color: var(--text-primary); border: 1px solid var(--line); }
+.button:hover { border-color: #12347f; background: #12347f; }
+.secondary:hover { background: var(--surface-subtle); }
+.button:disabled, .secondary:disabled { opacity: .55; cursor: wait; }
+.field input:focus-visible, .button:focus-visible, .secondary:focus-visible, .card a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.error { color: var(--danger); margin: 0; line-height: 1.6; }
+.notice { color: var(--text-secondary); font-size: .875rem; line-height: 1.6; }
+.footer { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--text-secondary); font-size: .8rem; line-height: 1.6; }
+.secret { display: block; overflow-wrap: anywhere; padding: .8rem; background: var(--surface-subtle); font-family: var(--workbench-mono); user-select: all; }
+.codes { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; padding: 1rem; background: var(--surface-subtle); font-family: var(--workbench-mono); font-size: .8rem; }
+.check { display: flex; gap: .6rem; line-height: 1.5; align-items: flex-start; font-size: .9rem; }
+.check input { width: 20px; height: 20px; flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) { .button, .secondary { transition: none; } }

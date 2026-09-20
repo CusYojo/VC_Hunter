@@ -1,0 +1,82 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DatabaseSync } from "node:sqlite";
+import { createDatabase, initializeDatabase } from "@/db/client";
+import { seedDemoData } from "@/db/seed";
+import { SqliteBackgroundAgentRepository } from "@/repositories/background-agent";
+import { SqliteResearchJobRepository } from "@/repositories/research-jobs";
+import { identityScope } from "@/security/identity-scope";
+import { SqliteWorkbenchRepository } from "@/workbench/repository";
+import { createResearchJob } from "@/services/research-jobs";
+import { saveAIProviderSettings, deleteAIProviderSettings } from "@/ai/settings-repository";
+import { createPersonalModelGateway } from "@/ai/personal-model";
+import { bindJobAIRequester, createJobModelGateway } from "@/ai/job-requesters";
+const auth = vi.hoisted(() => ({ membershipFor: vi.fn() }));
+vi.mock("@/auth/server", () => ({ getAuthService: () => auth }));
+import { personalSearchMode } from "@/ai/search-mode";
+import { createAgentRuntime } from "@/runtime/create-agent-runtime";
+import { createPersonalRuntimeResolver } from "@/runtime/personal-agent-runtime";
+import { runBackgroundAgentCycle } from "@/services/background-agent";
+
+describe("personal requester worker isolation", () => {
+  let db: DatabaseSync;
+  beforeEach(() => { db = createDatabase(":memory:"); initializeDatabase(db); seedDemoData(db); });
+  afterEach(() => { db.close(); vi.unstubAllEnvs(); });
+  it("explicitly disables Exa without removing its deployment key", () => {
+    expect(personalSearchMode(db,undefined,{NODE_ENV:"test",EXA_API_KEY:"present",VC_HUNTER_EXA_ENABLED:"false"})).toBe("local-index");
+    expect(personalSearchMode(db,undefined,{NODE_ENV:"test",EXA_API_KEY:"present"})).toBe("exa");
+  });
+  it("scopes discovery idempotency to account identity even if the team member id is reused", () => {
+    const user = { id: "same-team-id", name: "成员", role: "研究员", capabilities: ["discover"] as const };
+    const create = (accountId: string) => identityScope.run({ tenantId: "tenant-1", accountId, roles: ["researcher"], user: { ...user, capabilities: [...user.capabilities] } }, () => new SqliteWorkbenchRepository(db).createDiscoveryJob({ query: "半导体融资", resultLimit: 2 }, "same-idempotency-key", user.id));
+    const aliceJob = create("alice"); const bobJob = create("bob");
+    expect(aliceJob.id).not.toBe(bobJob.id);
+    expect(create("alice").id).toBe(aliceJob.id);
+    expect(db.prepare("SELECT account_id FROM job_ai_requesters WHERE job_id=?").get(bobJob.id)).toMatchObject({ account_id: "bob" });
+  });
+  it("resolves the actual job account, isolates keys, and rechecks revoked membership", async () => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "personal-encryption-fixture-32-characters");
+    vi.stubEnv("VC_HUNTER_CURRENT_TENANT_ID", "tenant-1");
+    const alice = { tenantId: "tenant-1", accountId: "alice" };
+    const bob = { tenantId: "tenant-1", accountId: "bob" };
+    saveAIProviderSettings(db, alice, { provider: "openai", model: "gpt-5.4", apiKey: "alice-key", activate: true });
+    saveAIProviderSettings(db, bob, { provider: "deepseek", model: "deepseek-v4-flash", apiKey: "bob-key", activate: true });
+    bindJobAIRequester(db, "research", "alice-job", alice);
+    expect(() => bindJobAIRequester(db, "research", "alice-job", bob)).toThrow();
+    auth.membershipFor.mockReturnValue({ tenantId: "tenant-1", roles: ["researcher"] });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "alice-result" } }] }), { headers: { "content-type": "application/json" } }));
+    await createJobModelGateway(db, "research", "alice-job", fetchImpl).generateText({ system: "s", user: "u" });
+    expect(fetchImpl.mock.calls[0][1].headers.authorization).toBe("Bearer alice-key");
+    expect(auth.membershipFor).toHaveBeenCalledWith("alice");
+    expect(JSON.stringify(db.prepare("SELECT * FROM job_ai_requesters").all())).not.toContain("key");
+    auth.membershipFor.mockReturnValue(null);
+    expect(() => createJobModelGateway(db, "research", "alice-job", fetchImpl)).toThrow();
+    deleteAIProviderSettings(db, alice, "openai");
+    expect(() => createPersonalModelGateway(db, alice, fetchImpl)).toThrow(/设置/);
+  });
+  it("runs research using the saved personal model and chooses local public search when Exa is absent", async () => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "personal-encryption-fixture-32-characters");
+    vi.stubEnv("VC_HUNTER_CURRENT_TENANT_ID", "tenant-1");
+    const owner = { tenantId: "tenant-1", accountId: "alice" };
+    saveAIProviderSettings(db, owner, { provider: "openai", model: "gpt-5.4", apiKey: "alice-key", activate: true });
+    auth.membershipFor.mockReturnValue({ tenantId: "tenant-1", roles: ["researcher"] });
+    const job = createResearchJob(new SqliteResearchJobRepository(db), { tenantId: owner.tenantId, projectId: "project-qiongxin", idempotencyKey: "actual-personal-job", requestedBy: owner.accountId });
+    bindJobAIRequester(db, "research", job.id, owner);
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ model: "gpt-5.4", choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ summary: "个人模型研究", findings: [{ claim: "资料披露融资", evidenceIds: ["evidence-project-qiongxin"] }], risks: [], openQuestions: [] }) } }] }), { headers: { "content-type": "application/json" } }));
+    const runtime = createAgentRuntime({ database: db, env: { NODE_ENV: "test", DEEPSEEK_API_KEY: "system-key" }, fetchImpl });
+    const resolvePersonalRuntime = createPersonalRuntimeResolver(db, runtime, { NODE_ENV: "test" }, fetchImpl);
+    expect((await resolvePersonalRuntime("research", job.id)).searchProvider.name).toBe("local-index");
+    const result = await runBackgroundAgentCycle({ repository: runtime.repository, searchProvider: runtime.defaultSearchProvider, researchGateway: runtime.analysis, resolvePersonalRuntime, workerId: "personal-worker" });
+    expect(result.failures).toBe(0);
+    expect(fetchImpl.mock.calls[0][1].headers.authorization).toBe("Bearer alice-key");
+    expect(db.prepare("SELECT status FROM research_jobs WHERE id=?").get(job.id)).toMatchObject({ status: "succeeded" });
+  });
+  it("fails a research job without calling the system gateway when requester resolution fails", async () => {
+    const job = createResearchJob(new SqliteResearchJobRepository(db), { tenantId: "demo", projectId: "project-qiongxin", idempotencyKey: "personal-key" });
+    const generateResearchBrief = vi.fn();
+    const resolvePersonalRuntime = vi.fn().mockRejectedValue(new Error("PERSONAL_AI_REQUIRED"));
+    await runBackgroundAgentCycle({ repository: new SqliteBackgroundAgentRepository(db), searchProvider: { name: "exa", search: vi.fn() }, researchGateway: { generateResearchBrief, qualifyDiscoveryLeads: vi.fn() }, resolvePersonalRuntime, workerId: "worker" });
+    expect(resolvePersonalRuntime).toHaveBeenCalledWith("research", job.id);
+    expect(generateResearchBrief).not.toHaveBeenCalled();
+    expect(db.prepare("SELECT status,error_code FROM research_jobs WHERE id=?").get(job.id)).toMatchObject({ status: "failed", error_code: "PERSONAL_AI_REQUIRED" });
+  });
+});

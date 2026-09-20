@@ -1,0 +1,165 @@
+{
+  "$comment": "信源注册清单。所有源默认 manual_only（需完成域名、robots/条款、存储与再分发政策审批后方可改为 approved 并启用）。feed 仅示例占位，启用前必须替换为真实官方 RSS/Atom 或官方 API。",
+  "sources": [
+    {
+      "id": "source-vc-touzhong",
+      "name": "投中网（CVSource 公开栏目）",
+      "type": "media",
+      "authority": "C",
+      "robotsStatus": "review_required",
+      "licenseNotes": "仅用于发现投资/并购线索；事实需回溯企业与机构官方公告。",
+      "policyStatus": "manual_only",
+      "independentGroup": "media-touzhong",
+      "feed": { "endpointUrl": "https://www.chinaventure.com.cn/feed", "allowedHostname": "www.chinaventure.com.cn", "enabled": false }
+    },
+    {
+      "id": "source-vc-qingke",
+      "name": "清科研究中心（私募通公开报告）",
+      "type": "research",
+      "authority": "B",
+      "robotsStatus": "review_required",
+      "licenseNotes": "季度行业报告，适合作为投资机构表现与赛道景气参考。",
+      "policyStatus": "manual_only",
+      "independentGroup": "research-qingke"
+    },
+    {
+      "id": "source-vc-itjuzi",
+      "name": "IT 桔子",
+      "type": "database",
+      "authority": "C",
+      "robotsStatus": "review_required",
+      "licenseNotes": "投资事件数据库，仅作线索发现；金额与投资方以企业公告为准。",
+      "policyStatus": "manual_only",
+      "independentGroup": "db-itjuzi"
+    },
+    {
+      "id": "source-vc-36kr",
+      "name": "36氪",
+      "type": "media",
+      "authority": "C",
+      "robotsStatus": "review_required",
+      "licenseNotes": "创业与融资新闻发现源。",
+      "policyStatus": "manual_only",
+      "independentGroup": "media-36kr",
+      "feed": { "endpointUrl": "https://36kr.com/feed", "allowedHostname": "36kr.com", "enabled": false }
+    },
+    {
+      "id": "source-vc-dongfang",
+      "name": "东方财富网（公告与资讯）",
+      "type": "media",
+      "authority": "C",
+      "robotsStatus": "review_required",
+      "licenseNotes": "上市公司公告与并购资讯线索。",
+      "policyStatus": "manual_only",
+      "independentGroup": "media-dongfang"
+    },
+    {
+      "id": "source-exchange-cninfo",
+      "name": "巨潮资讯网（法定披露）",
+      "type": "exchange_disclosure",
+      "authority": "A",
+      "robotsStatus": "review_required",
+      "licenseNotes": "上市公司财务、重大合同、投资并购的法定披露主源，程序化接口优先于页面爬取。",
+      "policyStatus": "manual_only",
+      "independentGroup": "exchange-cninfo"
+    },
+    {
+      "id": "source-exchange-sse",
+      "name": "上海证券交易所（公告披露）",
+      "type": "exchange_disclosure",
+      "authority": "A",
+      "robotsStatus": "review_required",
+      "licenseNotes": "上交所上市公司公告。",
+      "policyStatus": "manual_only",
+      "independentGroup": "exchange-sse"
+    },
+    {
+      "id": "source-exchange-szse",
+      "name": "深圳证券交易所（公告披露）",
+      "type": "exchange_disclosure",
+      "authority": "A",
+      "robotsStatus": "review_required",
+      "licenseNotes": "深交所上市公司公告。",
+      "policyStatus": "manual_only",
+      "independentGroup": "exchange-szse"
+    },
+    {
+      "id": "source-registry-samr",
+      "name": "市场监管总局（经营者集中反垄断公示）",
+      "type": "regulator",
+      "authority": "A",
+      "robotsStatus": "review_required",
+      "licenseNotes": "并购经营者集中案件公示。",
+      "policyStatus": "manual_only",
+      "independentGroup": "regulator-samr"
+    },
+    {
+      "id": "source-registry-gsxt",
+      "name": "国家企业信用信息公示系统",
+      "type": "registry",
+      "authority": "A",
+      "robotsStatus": "review_required",
+      "licenseNotes": "工商主体状态、股东与成立信息核验主源。",
+      "policyStatus": "manual_only",
+      "independentGroup": "registry-gsxt"
+    },
+    {
+      "id": "source-patent-cnipa",
+      "name": "国家知识产权局（专利公布公告）",
+      "type": "patent",
+      "authority": "A",
+      "robotsStatus": "review_required",
+      "licenseNotes": "专利公开、授权、著录事项变更等事务；公报每周更新。",
+      "policyStatus": "manual_only",
+      "independentGroup": "patent-cnipa"
+    },
+    {
+      "id": "source-paper-arxiv",
+      "name": "arXiv",
+      "type": "paper",
+      "authority": "B",
+      "robotsStatus": "review_required",
+      "licenseNotes": "提供公开 API，须遵守其访问限制与版权条件。",
+      "policyStatus": "manual_only",
+      "independentGroup": "paper-arxiv"
+    },
+    {
+      "id": "source-paper-chinaxiv",
+      "name": "ChinaXiv",
+      "type": "paper",
+      "authority": "B",
+      "robotsStatus": "review_required",
+      "licenseNotes": "中文科技论文预发布平台。",
+      "policyStatus": "manual_only",
+      "independentGroup": "paper-chinaxiv"
+    },
+    {
+      "id": "source-biopharma-cde",
+      "name": "国家药监局药审中心（CDE）",
+      "type": "regulator",
+      "authority": "A",
+      "robotsStatus": "review_required",
+      "licenseNotes": "临床试验登记、药品批准信息与审评数据。",
+      "policyStatus": "manual_only",
+      "independentGroup": "regulator-cde"
+    },
+    {
+      "id": "source-example-official",
+      "name": "待替换的官方 RSS 示例",
+      "type": "official_feed",
+      "authority": "A",
+      "robotsStatus": "review_required",
+      "licenseNotes": "启用前必须完成域名、条款、存储范围和再分发政策审批。",
+      "policyStatus": "manual_only",
+      "independentGroup": "official-example",
+      "feed": {
+        "endpointUrl": "https://feeds.example.cn/news.xml",
+        "allowedHostname": "feeds.example.cn",
+        "enabled": false,
+        "timeoutMs": 10000,
+        "maxResponseBytes": 2097152,
+        "maxItems": 200
+      }
+    }
+  ]
+}

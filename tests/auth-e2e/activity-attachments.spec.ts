@@ -1,0 +1,146 @@
+import { appendFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { expect, test, type Page, type APIResponse } from "@playwright/test";
+import { readAuthFixture } from "./fixtures";
+import { login } from "./login";
+
+const origin = "http://127.0.0.1:3107";
+const projectId = "project-qiongxin";
+const libraryName = "共享项目底稿.txt";
+const progress = (step: string) => appendFileSync("/tmp/vc-activity-attachment-steps.log", `${step}\n`, { mode: 0o600 });
+const libraryText = "项目库既有文件：请核对样机验证节点。";
+async function pickLibrary(page: Page) {
+  await page.getByRole("button", { name: "@ 项目库文件", exact: true }).click();
+  await page.getByLabel("搜索项目库文件", { exact: true }).fill("共享项目底稿");
+  await page.getByRole("button", { name: new RegExp(libraryName) }).click();
+}
+async function assertSuccess(response: Pick<APIResponse, "status" | "json">, expected: number, label: string) {
+  const payload = await response.json();
+  if (response.status() !== expected) throw new Error(`${label}: HTTP ${response.status()} code ${payload.error?.code ?? "unknown"}`);
+  return payload.data;
+}
+
+test("new meetings and approvals atomically attach local files and @ project files, with recipient previews", async ({ browser }) => {
+  writeFileSync("/tmp/vc-activity-attachment-steps.log", "start\n", { mode: 0o600 });
+  const { admin, member } = readAuthFixture();
+  const authorContext = await browser.newContext({ baseURL: origin });
+  const recipientContext = await browser.newContext({ baseURL: origin });
+  const anonymous = await browser.newContext({ baseURL: origin });
+  try {
+    const author = await authorContext.newPage(); await login(author, admin); author.setDefaultTimeout(10_000); progress("author logged in");
+    const project = (await (await authorContext.request.get(`/api/v1/projects/${projectId}`)).json()).data;
+    await assertSuccess(await authorContext.request.post(`/api/v1/projects/${projectId}/documents`, { headers: { origin, "idempotency-key": randomUUID() }, multipart: { expectedVersion: String(project.version), externalPolicy: "local_only", file: { name: libraryName, mimeType: "text/plain", buffer: Buffer.from(libraryText) } } }), 201, "Seed project file");
+    progress("project source uploaded");
+    const catalog = await assertSuccess(await authorContext.request.get(`/api/v1/project-files?q=${encodeURIComponent("共享项目底稿")}&projectId=${projectId}`), 200, "Project file catalog");
+    expect(catalog.items).toEqual(expect.arrayContaining([expect.objectContaining({ projectId, originalName: libraryName, projectName: project.name })]));
+    expect((await anonymous.request.get("/api/v1/project-files")).status()).toBe(401);
+    const recipient = await recipientContext.newPage(); await login(recipient, member); recipient.setDefaultTimeout(10_000); progress("recipient logged in");
+    for (const kind of ["meeting", "approval"] as const) {
+      const title = kind === "meeting" ? "E2E会议混合附件" : "E2E审批混合附件";
+      const fileName = kind === "meeting" ? "本地会议议程.txt" : "本地审批说明.txt";
+      const text = `${title}：新建时附上并完整保存。`;
+      progress(`${kind}: open form`);
+      await author.goto(kind === "approval" ? "/approvals" : "/work");
+      await author.getByRole("button", { name: "新建事项", exact: true }).click();
+      await author.getByRole("combobox", { name: /^事项类型/ }).selectOption(kind);
+      await author.getByLabel("事项标题", { exact: true }).fill(title);
+      await author.getByLabel("截止或开始时间", { exact: true }).fill("2026-09-05T10:00");
+      await author.getByLabel(member.name, { exact: true }).check();
+      await author.getByLabel("附上文件", { exact: true }).setInputFiles({ name: fileName, mimeType: "text/plain", buffer: Buffer.from(text) });
+      progress(`${kind}: local file selected`);
+      await author.getByRole("textbox", { name: /^内容与资料说明/ }).fill("请阅读 @共享项目底稿");
+      await expect(author.getByLabel("搜索项目库文件", { exact: true })).toHaveValue("共享项目底稿");
+      progress(`${kind}: choose project reference`);
+      await author.getByRole("button", { name: new RegExp(libraryName) }).click();
+      progress(`${kind}: reference chosen`);
+      progress(`${kind}: synthetic description = ${await author.getByRole("textbox", { name: /^内容与资料说明/ }).inputValue()}`);
+      await author.screenshot({ path: "/tmp/vc-mention-debug.png", fullPage: true });
+      await expect(author.getByRole("textbox", { name: /^内容与资料说明/ })).toHaveValue(new RegExp(`@${libraryName}`));
+      await author.getByRole("textbox", { name: /^内容与资料说明/ }).press("ControlOrMeta+A");
+      await author.getByRole("textbox", { name: /^内容与资料说明/ }).press("ArrowRight");
+      await author.getByRole("textbox", { name: /^内容与资料说明/ }).pressSequentially("请在会前完成核对。");
+      progress(`${kind}: synthetic continued description = ${await author.getByRole("textbox", { name: /^内容与资料说明/ }).inputValue()}`);
+      await expect(author.getByLabel("搜索项目库文件", { exact: true })).toHaveCount(0);
+      await expect(author.getByRole("textbox", { name: /^内容与资料说明/ })).toHaveValue(`请阅读 @${libraryName} 请在会前完成核对。`);
+      const writes: string[] = [];
+      const listener = (request: { method(): string; url(): string }) => { if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/api/v1/activity")) writes.push(request.url()); };
+      author.on("request", listener);
+      progress(`${kind}: submitting`);
+      const [response] = await Promise.all([author.waitForResponse(response => new URL(response.url()).pathname === "/api/v1/activity" && response.request().method() === "POST"), author.getByRole("button", { name: "保存到工作空间", exact: true }).click()]);
+      const saved = await assertSuccess(response, 201, "Create activity with attachments");
+      progress(`${kind}: saved`);
+      author.off("request", listener);
+      expect(writes).toHaveLength(1);
+      expect(saved.documents).toHaveLength(2);
+      await author.reload();
+      const authorCard = author.getByRole("article").filter({ has: author.getByRole("button", { name: `事项概览：${title}`, exact: true }) });
+      await authorCard.getByRole("button", { name: `事项概览：${title}`, exact: true }).click();
+      await expect(authorCard.getByRole("button", { name: `预览 ${fileName}`, exact: true })).toBeVisible();
+      await expect(authorCard.getByRole("button", { name: `预览 ${libraryName}`, exact: true })).toBeVisible();
+      progress(`${kind}: author reload verified`);
+      await recipient.goto(kind === "approval" ? "/approvals" : "/work");
+      const card = recipient.getByRole("article").filter({ has: recipient.getByRole("button", { name: `事项概览：${title}`, exact: true }) });
+      await card.getByRole("button", { name: `事项概览：${title}`, exact: true }).click();
+      progress(`${kind}: recipient local preview`);
+      await card.getByRole("button", { name: `预览 ${fileName}`, exact: true }).click();
+      const localPreview = recipient.getByRole("dialog", { name: fileName, exact: true });
+      await expect(localPreview.getByText(text, { exact: true })).toBeVisible();
+      await localPreview.getByRole("button", { name: "关闭预览", exact: true }).click();
+      await expect(localPreview).toHaveCount(0);
+      progress(`${kind}: recipient reference preview`);
+      await card.getByRole("button", { name: `预览 ${libraryName}`, exact: true }).click();
+      const sourcePreview = recipient.getByRole("dialog", { name: libraryName, exact: true });
+      await expect(sourcePreview.getByText(libraryText, { exact: true })).toBeVisible();
+      await sourcePreview.getByRole("button", { name: "关闭预览", exact: true }).click();
+      await expect(sourcePreview).toHaveCount(0);
+      const downloadUrl = await card.getByRole("link", { name: `下载 ${fileName}`, exact: true }).getAttribute("href");
+      const downloaded = await recipientContext.request.get(downloadUrl!);
+      expect(downloaded.status()).toBe(200); expect(await downloaded.text()).toBe(text);
+      expect((await anonymous.request.get(downloadUrl!)).status()).toBe(401);
+      progress(`${kind}: downloads verified`);
+      if (kind === "approval") {
+        await expect(card.getByLabel("上传审批资料", { exact: true })).toHaveCount(0);
+        await card.getByRole("button", { name: "批准", exact: true }).click();
+        await expect(card.getByRole("button", { name: "批准", exact: true })).toHaveCount(0);
+        await expect(card.getByRole("button", { name: `预览 ${fileName}`, exact: true })).toBeVisible();
+      }
+    }
+    progress("expense: create");
+    await author.goto("/finance");
+    await author.getByRole("button", { name: "新建费用", exact: true }).click();
+    await author.getByLabel("名称", { exact: true }).fill("E2E费用混合附件");
+    await author.getByLabel("费用金额（元）", { exact: true }).fill("80");
+    await author.getByLabel("发生日期", { exact: true }).fill("2026-09-05");
+    await author.getByRole("combobox", { name: /^关联项目/ }).selectOption(projectId);
+    await author.getByLabel("附上文件", { exact: true }).setInputFiles({ name: "费用票据.txt", mimeType: "text/plain", buffer: Buffer.from("费用凭证完整正文") });
+    progress("expense: select project reference");
+    await pickLibrary(author);
+    progress("expense: save");
+    await author.getByRole("button", { name: "保存记录", exact: true }).click();
+    await expect(author.getByRole("dialog")).toHaveCount(0);
+    await author.reload();
+    const expense = author.getByRole("article").filter({ has: author.getByRole("heading", { name: "E2E费用混合附件", exact: true }) });
+    await expense.getByText("查看详情与关联资料", { exact: true }).click();
+    const invoice = expense.getByRole("link", { name: /费用票据.txt.*下载|下载.*费用票据.txt/ });
+    const invoiceResponse = await authorContext.request.get((await invoice.getAttribute("href"))!);
+    expect(invoiceResponse.status()).toBe(200); expect(await invoiceResponse.text()).toBe("费用凭证完整正文");
+    await expect(expense.getByRole("link", { name: /共享项目底稿.txt.*下载|下载.*共享项目底稿.txt/ })).toBeVisible();
+    progress("expense: downloads verified");
+    await author.setViewportSize({ width: 390, height: 844 });
+    await author.getByRole("button", { name: "新建费用", exact: true }).click();
+    const mobileEditor = author.getByRole("dialog");
+    await expect(mobileEditor.getByRole("heading", { name: "新建费用", exact: true })).toBeInViewport();
+    await expect(mobileEditor.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
+    await mobileEditor.getByLabel("名称", { exact: true }).fill("移动端附件验证");
+    progress("expense: select project reference");
+    await pickLibrary(author);
+    expect(await author.getByRole("dialog").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    progress("mobile: screenshot");
+    await author.screenshot({ path: "/tmp/vc-attachments-mobile.png", fullPage: true });
+    await mobileEditor.getByRole("heading", { name: "新建费用", exact: true }).scrollIntoViewIfNeeded();
+    await expect(mobileEditor.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
+    await author.screenshot({ path: "/tmp/vc-attachments-mobile-viewport.png" });
+    await mobileEditor.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(mobileEditor).toHaveCount(0);
+  } finally { await authorContext.close(); await recipientContext.close(); await anonymous.close(); }
+});

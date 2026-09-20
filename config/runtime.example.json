@@ -1,0 +1,15 @@
+{
+  "$comment": "只允许选择内置 Provider/Workflow；Prompt 可新增不可覆盖的版本。不要在配置中填写 API Key。",
+  "schemaVersion": 1,
+  "defaults": {
+    "searchProvider": "deepseek-web-search",
+    "discoveryWorkflow": { "id": "project-discovery", "version": "1.1.0" },
+    "researchWorkflow": { "id": "project-research", "version": "1.1.0" },
+    "prompts": {
+      "webSearch": { "id": "investment-web-search", "version": "1.0.0" },
+      "leadQualification": { "id": "lead-qualification", "version": "1.0.0" },
+      "researchBrief": { "id": "research-brief", "version": "1.0.0" }
+    }
+  },
+  "promptModules": []
+}

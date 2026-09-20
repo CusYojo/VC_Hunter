@@ -1,0 +1,11 @@
+{
+  "$comment": "优先投中网和36氪当日投融资新闻；原文首次发布日期核验后才进入候选库。10:00/14:00北京时间由网站调度控制。",
+  "searchPlans": [{
+    "id": "daily-platform-funding",
+    "name": "投中网与36氪当日投融资",
+    "query": "投中网 36氪 企业 投资 融资 领投 完成融资",
+    "intervalMinutes": 1440,
+    "limit": 20,
+    "enabled": false
+  }]
+}
